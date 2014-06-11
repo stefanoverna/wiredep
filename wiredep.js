@@ -1,6 +1,6 @@
 'use strict';
 
-var $ = require('modmod')('bower-config', 'chalk', 'fs', 'glob', 'lodash', 'path', 'through2');
+var $ = require('modmod')('bower-config', 'chalk', 'events', 'fs', 'glob', 'lodash', 'path', 'through2', 'util');
 var _ = $.lodash;
 
 var helpers = require('./lib/helpers');
@@ -12,7 +12,13 @@ var fileTypesDefault = require('./lib/default-file-types');
  * @param  {object} config  the global configuration object
  */
 function wiredep(opts) {
+  if (!(this instanceof wiredep)) {
+    return new wiredep(opts);
+  }
+
   opts = opts || {};
+
+  $.events.EventEmitter.call(this);
 
   var cwd = opts.cwd ? $.path.resolve(opts.cwd) : process.cwd();
 
@@ -25,14 +31,14 @@ function wiredep(opts) {
     ('detectable-file-types', [])
     ('dev-dependencies', opts.devDependencies)
     ('exclude', Array.isArray(opts.exclude) ? opts.exclude : [ opts.exclude ])
+    ('emitter', opts.emitter || this)
     ('file-types', mergeFileTypesWithDefaults(opts.fileTypes))
     ('global-dependencies', helpers.createStore())
     ('ignore-path', opts.ignorePath)
     ('include-self', opts.includeSelf)
     ('overrides', _.extend({}, config.get('bower.json').overrides, opts.overrides))
     ('src', [])
-    ('stream', opts.stream ? opts.stream : {})
-    ('warnings', []);
+    ('stream', opts.stream ? opts.stream : {});
 
   _.pluck(config.get('file-types'), 'detect').
     forEach(function (fileType) {
@@ -56,20 +62,21 @@ function wiredep(opts) {
   require('./lib/detect-dependencies')(config);
   require('./lib/inject-dependencies')(config);
 
-  if (config.get('warnings')) {
-    helpers.warn(config.get('warnings'));
-  }
+  this.injected = Object.keys(config.get('global-dependencies-sorted')).
+    reduce(function (acc, depType) {
+      if (config.get('global-dependencies-sorted')[depType].length) {
+        acc[depType] = config.get('global-dependencies-sorted')[depType];
+      }
 
-  return config.get('stream').src ||
-    Object.keys(config.get('global-dependencies-sorted')).
-      reduce(function (acc, depType) {
-        if (config.get('global-dependencies-sorted')[depType].length) {
-          acc[depType] = config.get('global-dependencies-sorted')[depType];
-        }
+      return acc;
+    }, {});
 
-        return acc;
-      }, { packages: config.get('global-dependencies').get() });
+  this.packages = config.get('global-dependencies').get();
+
+  this.src = config.get('stream').src;
 }
+
+$.util.inherits(wiredep, $.events.EventEmitter);
 
 function mergeFileTypesWithDefaults(optsFileTypes) {
   var fileTypes = _.clone(fileTypesDefault, true);
@@ -122,7 +129,7 @@ wiredep.stream = function (opts) {
         fileType: $.path.extname(file.path).substr(1)
       };
 
-      file.contents = new Buffer(wiredep(opts));
+      file.contents = new Buffer(wiredep(opts).src);
     } catch (err) {
       this.emit('error', err);
     }

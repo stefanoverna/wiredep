@@ -190,21 +190,6 @@ describe('wiredep', function () {
   });
 
   describe('overrides', function () {
-    it('should not display a warning if a no-`main` package is excluded', function () {
-      var filePaths = getFilePaths('index-packages-without-main', 'html');
-
-      wiredep({
-        bowerJson: JSON.parse(fs.readFileSync('./bower_packages_without_main.json')),
-        src: [filePaths.actual],
-        exclude: ['fake-package-without-main-and-confusing-file-tree']
-      });
-
-      // If a package is excluded, don't display a warning.
-      assert.equal(wiredep.config.get('warnings').length, 0);
-
-      assert.equal(filePaths.read('expected'), filePaths.read('actual'));
-    });
-
     it('should allow configuration overrides to specify a `main`', function () {
       var filePaths = getFilePaths('index-packages-without-main', 'html');
       var bowerJson = JSON.parse(fs.readFileSync('./bower_packages_without_main.json'));
@@ -259,10 +244,10 @@ describe('wiredep', function () {
   it('should return a useful object', function () {
     var returnedObject = wiredep();
 
-    assert.equal(typeof returnedObject.js, 'object');
-    assert.equal(typeof returnedObject.css, 'object');
-    assert.equal(typeof returnedObject.less, 'object');
-    assert.equal(typeof returnedObject.scss, 'object');
+    assert.equal(typeof returnedObject.injected.js, 'object');
+    assert.equal(typeof returnedObject.injected.css, 'object');
+    assert.equal(typeof returnedObject.injected.less, 'object');
+    assert.equal(typeof returnedObject.injected.scss, 'object');
     assert.equal(typeof returnedObject.packages, 'object');
   });
 
@@ -288,6 +273,56 @@ describe('wiredep', function () {
     });
 
     assert.equal(filePaths.read('actual'), filePaths.read('expected'));
+  });
+
+  describe('events', function () {
+    var events = require('events');
+    var emitter = new events.EventEmitter();
+
+    var filePaths = ['bootstrap.css', 'codecode.css', 'bootstrap.js', 'codecode.js', 'modernizr.js', 'jquery.js'];
+    var fileCount = filePaths.length;
+
+    function run() {
+      wiredep({
+        emitter: emitter,
+        src: 'html/index-emitter.html'
+      });
+    }
+
+    describe('`file-updated`', function () {
+      it('should execute callback with correct arguments', function (done) {
+        emitter.on('file-updated', function (info) {
+          var dependencies = JSON.stringify(info.dependencies);
+
+          filePaths.forEach(function (fileName) {
+            assert(dependencies.indexOf(fileName) > -1);
+          });
+
+          assert.equal('html/index-emitter.html', info.file);
+          assert.deepEqual(['css', 'js'], info.blocks);
+          done();
+        });
+
+        run();
+      });
+    });
+
+    describe('`path-injected`', function () {
+      it('should execute callback with correct arguments', function (done) {
+        var called = 0;
+
+        emitter.on('path-injected', function (info) {
+          if (++called === fileCount) {
+            assert.deepEqual(info.package, JSON.parse(fs.readFileSync('./bower_components/bootstrap/bower.json')));
+            assert.equal('html/index-emitter.html', info.file);
+            assert.equal('js', info.block);
+            done();
+          }
+        });
+
+        run();
+      });
+    });
   });
 });
 
